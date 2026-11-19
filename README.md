@@ -6,9 +6,9 @@ Connector plugins let an AI assistant work on your site, and many can read the d
 
 ## What it does
 
-- **On when you log in.** When one of the administrators you choose logs in, the connector plugins are activated.
+- **On when you log in.** When one of the administrators you choose logs in and reaches the dashboard (after any two-factor step), or opens the dashboard while already logged in with "Remember Me", the connector plugins are activated.
 - **Off when you log out.**
-- **Off when idle.** After a set time with no AI activity (default 2 hours), they're deactivated automatically. This covers staying logged in for days with "Remember Me".
+- **Off when idle.** After a set time with no AI or dashboard activity from the administrators you choose (default 2 hours), they're deactivated automatically. This covers staying logged in for days with "Remember Me". Requests from anyone else, including visitors who aren't logged in, don't count. Your AI connector must sign in as one of the chosen administrators.
 - **One-click switch.** An **AI: ON / OFF** switch in the admin bar, shown only to the administrators you choose.
 - **Audit trail.** The settings page lists the last 50 switch events: who, when and why.
 
@@ -16,7 +16,7 @@ Switching off uses WordPress's normal plugin deactivation, so the connector keep
 
 ## Download and install
 
-1. Download **[ai-connection-switch-1.0.1.zip](dist/ai-connection-switch-1.0.1.zip)** (on that page, click **Download raw file**, the download arrow at the top right).
+1. Download **[ai-connection-switch-1.0.3.zip](dist/ai-connection-switch-1.0.3.zip)** (on that page, click **Download raw file**, the download arrow at the top right).
 2. In WordPress: **Plugins ▸ Add New Plugin ▸ Upload Plugin**, choose the zip, then **Install Now** and **Activate**.
 3. Go to **Settings ▸ AI Connection Switch**:
    - Tick the connector plugin(s), e.g. **Novamira** *and* **Novamira Pro**.

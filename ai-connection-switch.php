@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       AI Connection Switch
- * Description:       Keeps AI / MCP connector plugins (such as Novamira) switched off when you are not using them. Turns them on when a chosen administrator logs in, off when they log out or after a period with no AI activity, and adds an on/off switch to the admin bar.
- * Version:           1.0.1
+ * Description:       Keeps AI / MCP connector plugins (such as Novamira) switched off when you are not using them. Turns them on when a chosen administrator opens the dashboard (after logging in, including any two-factor step), off when they log out or after a period with no AI or dashboard activity from a chosen administrator, and adds an on/off switch to the admin bar.
+ * Version:           1.0.3
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            HHH Consulting
@@ -18,7 +18,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-const AICS_VERSION = '1.0.1';
+const AICS_VERSION = '1.0.3';
 const AICS_OPTION  = 'aics_settings';
 const AICS_STATE   = 'aics_state';
 const AICS_LOG     = 'aics_log';
@@ -44,7 +44,7 @@ function aics_settings() {
 }
 
 function aics_state() {
-	return wp_parse_args( (array) get_option( AICS_STATE, array() ), array( 'last_on' => 0, 'last_activity' => 0 ) );
+	return wp_parse_args( (array) get_option( AICS_STATE, array() ), array( 'last_on' => 0, 'last_activity' => 0, 'manual_off' => 0 ) );
 }
 
 function aics_set_state( $changes ) {
@@ -107,7 +107,7 @@ function aics_switch_on( $reason ) {
 		aics_log( sprintf( __( 'Could not switch on (%1$s): %2$s', 'ai-connection-switch' ), $reason, $result->get_error_message() ) );
 		return;
 	}
-	aics_set_state( array( 'last_on' => time() ) );
+	aics_set_state( array( 'last_on' => time(), 'manual_off' => 0 ) );
 	aics_log( sprintf( __( 'Switched ON: %s', 'ai-connection-switch' ), $reason ) );
 }
 
@@ -128,9 +128,12 @@ function aics_user_label( $user_id ) {
 
 /* Log in / log out ------------------------------------------------------- */
 
+// Security fix 2026-11-19: wp_login fires BEFORE WP 2FA asks for the code, so a correct password
+// alone used to switch the connector on. Now logging in only clears a manual OFF; the first
+// dashboard page after 2FA switches it on (aics_dashboard_visit below).
 add_action( 'wp_login', function ( $login, $user ) {
-	if ( aics_settings()['on_login'] && $user instanceof WP_User && aics_is_controller( $user->ID ) && ! aics_is_on() ) {
-		aics_switch_on( sprintf( __( '%s logged in', 'ai-connection-switch' ), $user->user_login ) );
+	if ( aics_settings()['on_login'] && $user instanceof WP_User && aics_is_controller( $user->ID ) ) {
+		aics_set_state( array( 'manual_off' => 0 ) );
 	}
 }, 10, 2 );
 
@@ -139,6 +142,32 @@ add_action( 'wp_logout', function ( $user_id = 0 ) {
 		aics_switch_off( sprintf( __( '%s logged out', 'ai-connection-switch' ), aics_user_label( $user_id ) ) );
 	}
 } );
+
+/**
+ * Opening the dashboard counts as logging in. With "Remember Me" a chosen user can
+ * come back for days without wp_login firing, so the connector stayed off after an
+ * idle switch-off. current_screen fires only on real admin pages: not the Heartbeat
+ * (admin-ajax.php), not the admin-bar switch (admin-post.php) and not REST.
+ */
+function aics_dashboard_visit() {
+	$user_id = get_current_user_id();
+	if ( ! aics_settings()['on_login'] || ! aics_is_controller( $user_id ) ) {
+		return;
+	}
+	$state = aics_state();
+	if ( ! aics_is_on() ) {
+		// Respect the admin-bar switch: after a manual OFF, stay off until switched on or the next log-in.
+		if ( empty( $state['manual_off'] ) ) {
+			aics_switch_on( sprintf( __( '%s opened the dashboard', 'ai-connection-switch' ), aics_user_label( $user_id ) ) );
+		}
+		return;
+	}
+	// Working in the dashboard keeps the connector on, just like AI activity.
+	if ( time() - (int) $state['last_activity'] > MINUTE_IN_SECONDS ) {
+		aics_set_state( array( 'last_activity' => time() ) );
+	}
+}
+add_action( 'current_screen', 'aics_dashboard_visit', 5 );
 
 /* AI activity tracking --------------------------------------------------- */
 
@@ -151,6 +180,11 @@ add_action( 'application_password_did_authenticate', function ( $user ) {
 
 /** So does any REST request to a configured route prefix (e.g. /wp-json/novamira/...). */
 add_filter( 'rest_pre_dispatch', function ( $result, $server, $request ) {
+	// Security fix 2026-11-19: only a logged-in chosen user's requests count as activity
+	// (anonymous requests to these routes used to keep the connector on for ever).
+	if ( ! aics_is_controller( get_current_user_id() ) ) {
+		return $result;
+	}
 	$route = ltrim( (string) $request->get_route(), '/' );
 	foreach ( array_filter( array_map( 'trim', explode( ',', (string) aics_settings()['rest_prefixes'] ) ) ) as $prefix ) {
 		if ( stripos( $route, $prefix ) === 0 ) {
@@ -171,11 +205,11 @@ function aics_idle_check() {
 	$state = aics_state();
 	$since = max( (int) $state['last_on'], (int) $state['last_activity'] );
 	if ( $since && time() - $since > $minutes * MINUTE_IN_SECONDS ) {
-		aics_switch_off( sprintf( __( 'no AI activity for %d minutes', 'ai-connection-switch' ), $minutes ) );
+		aics_switch_off( sprintf( __( 'no AI or dashboard activity for %d minutes', 'ai-connection-switch' ), $minutes ) );
 	}
 }
 add_action( AICS_CRON, 'aics_idle_check' );
-add_action( 'admin_init', 'aics_idle_check' ); // backup in case WP-Cron is slow
+add_action( 'current_screen', 'aics_idle_check' ); // backup in case WP-Cron is slow (runs after aics_dashboard_visit)
 
 add_filter( 'cron_schedules', function ( $schedules ) {
 	$schedules['aics_five_minutes'] = array(
@@ -228,6 +262,7 @@ add_action( 'admin_post_aics_toggle', function () {
 	$back_to = wp_get_referer() ? wp_get_referer() : admin_url();
 	if ( $was_on ) {
 		aics_switch_off( sprintf( __( 'switched off by %s', 'ai-connection-switch' ), $who ) );
+		aics_set_state( array( 'manual_off' => 1 ) );
 	} else {
 		aics_switch_on( sprintf( __( 'switched on by %s', 'ai-connection-switch' ), $who ) );
 	}
@@ -297,7 +332,7 @@ function aics_render_settings() {
 
 		<p><strong><?php esc_html_e( 'Now:', 'ai-connection-switch' ); ?></strong>
 			<?php echo aics_is_on() ? '<span style="color:#1a7f37">' . esc_html__( 'ON', 'ai-connection-switch' ) . '</span>' : '<span style="color:#666">' . esc_html__( 'OFF', 'ai-connection-switch' ) . '</span>'; ?>
-			&nbsp;·&nbsp;<?php esc_html_e( 'Last AI activity:', 'ai-connection-switch' ); ?>
+			&nbsp;·&nbsp;<?php esc_html_e( 'Last activity:', 'ai-connection-switch' ); ?>
 			<?php echo $state['last_activity'] ? esc_html( wp_date( $fmt, (int) $state['last_activity'] ) ) : esc_html__( 'none recorded', 'ai-connection-switch' ); ?>
 		</p>
 
@@ -325,9 +360,9 @@ function aics_render_settings() {
 				<tr>
 					<th scope="row"><?php esc_html_e( 'Automatic', 'ai-connection-switch' ); ?></th>
 					<td>
-						<label style="display:block"><input type="checkbox" name="<?php echo esc_attr( AICS_OPTION ); ?>[on_login]" value="1" <?php checked( $s['on_login'] ); ?>> <?php esc_html_e( 'Switch on when one of them logs in', 'ai-connection-switch' ); ?></label>
+						<label style="display:block"><input type="checkbox" name="<?php echo esc_attr( AICS_OPTION ); ?>[on_login]" value="1" <?php checked( $s['on_login'] ); ?>> <?php esc_html_e( 'Switch on when one of them logs in or opens the dashboard', 'ai-connection-switch' ); ?></label>
 						<label style="display:block"><input type="checkbox" name="<?php echo esc_attr( AICS_OPTION ); ?>[off_logout]" value="1" <?php checked( $s['off_logout'] ); ?>> <?php esc_html_e( 'Switch off when one of them logs out', 'ai-connection-switch' ); ?></label>
-						<label style="display:block"><?php esc_html_e( 'Switch off after', 'ai-connection-switch' ); ?> <input type="number" min="0" max="1440" style="width:6em" name="<?php echo esc_attr( AICS_OPTION ); ?>[idle_minutes]" value="<?php echo (int) $s['idle_minutes']; ?>"> <?php esc_html_e( 'minutes with no AI activity (0 = never)', 'ai-connection-switch' ); ?></label>
+						<label style="display:block"><?php esc_html_e( 'Switch off after', 'ai-connection-switch' ); ?> <input type="number" min="0" max="1440" style="width:6em" name="<?php echo esc_attr( AICS_OPTION ); ?>[idle_minutes]" value="<?php echo (int) $s['idle_minutes']; ?>"> <?php esc_html_e( 'minutes with no AI or dashboard activity (0 = never)', 'ai-connection-switch' ); ?></label>
 					</td>
 				</tr>
 				<tr>
