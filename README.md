@@ -16,7 +16,7 @@ Switching off uses WordPress's normal plugin deactivation, so the connector keep
 
 ## Download and install
 
-1. Download **[ai-connection-switch-1.0.3.zip](dist/ai-connection-switch-1.0.3.zip)** (on that page, click **Download raw file**, the download arrow at the top right).
+1. Download **[ai-connection-switch-1.0.4.zip](dist/ai-connection-switch-1.0.4.zip)** (on that page, click **Download raw file**, the download arrow at the top right).
 2. In WordPress: **Plugins ▸ Add New Plugin ▸ Upload Plugin**, choose the zip, then **Install Now** and **Activate**.
 3. Go to **Settings ▸ AI Connection Switch**:
    - Tick the connector plugin(s), e.g. **Novamira** *and* **Novamira Pro**.

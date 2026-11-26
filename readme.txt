@@ -4,7 +4,7 @@ Tags: security, ai, mcp, application passwords, hardening
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.3
+Stable tag: 1.0.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -79,6 +79,9 @@ Only if nothing has happened for the whole idle period. Every request from the A
 It runs every five minutes through WP-Cron, which needs some traffic, and also whenever an administrator loads a dashboard page. For exact timing, use a real server cron to call `wp-cron.php`.
 
 == Changelog ==
+
+= 1.0.4 =
+* FIX: the connector could switch straight back off after you ticked it in the settings or activated it from the Plugins screen. The idle timer only restarted when this plugin itself switched the connector on, so it was still counting from when AI Connection Switch was first activated. Saving the settings, and activating a chosen connector by any route (Plugins screen, WP-CLI, a staging push), now restart the idle timer.
 
 = 1.0.3 =
 * SECURITY: logging in no longer switches the connector on by itself. WordPress reports a login before two-factor plugins (such as WP 2FA) ask for the code, so a correct password alone used to switch the connector on. Now the first dashboard page after logging in switches it on. If your login takes you straight to the dashboard you won't notice a difference; if it takes you to the front of your site, open any dashboard page (or use the admin-bar switch).
