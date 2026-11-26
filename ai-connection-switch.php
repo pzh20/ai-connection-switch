@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       AI Connection Switch
  * Description:       Keeps AI / MCP connector plugins (such as Novamira) switched off when you are not using them. Turns them on when a chosen administrator opens the dashboard (after logging in, including any two-factor step), off when they log out or after a period with no AI or dashboard activity from a chosen administrator, and adds an on/off switch to the admin bar.
- * Version:           1.0.3
+ * Version:           1.0.4
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            HHH Consulting
@@ -18,7 +18,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-const AICS_VERSION = '1.0.3';
+const AICS_VERSION = '1.0.4';
 const AICS_OPTION  = 'aics_settings';
 const AICS_STATE   = 'aics_state';
 const AICS_LOG     = 'aics_log';
@@ -194,6 +194,31 @@ add_filter( 'rest_pre_dispatch', function ( $result, $server, $request ) {
 	}
 	return $result;
 }, 10, 3 );
+
+/* Idle clock restarts ---------------------------------------------------- */
+
+// Fix 2026-11-26: the idle clock only restarted when this plugin itself switched the connector on.
+// Saving the settings, or activating a connector from the Plugins screen (or WP-CLI, or a staging
+// push), left it counting from the plugin's activation, so the next admin page or cron run could
+// see "idle for hours" and switch the connector straight back off.
+
+function aics_restart_idle_clock() {
+	aics_set_state( array( 'last_on' => time() ) );
+}
+
+/** Saving the settings starts a fresh idle period (even when nothing on the form changed). */
+add_filter( 'pre_update_option_' . AICS_OPTION, function ( $value ) {
+	aics_restart_idle_clock();
+	return $value;
+} );
+add_action( 'add_option_' . AICS_OPTION, 'aics_restart_idle_clock' );
+
+/** So does activating one of the chosen connector plugins by any route. */
+add_action( 'activated_plugin', function ( $plugin ) {
+	if ( in_array( $plugin, aics_targets(), true ) ) {
+		aics_restart_idle_clock();
+	}
+} );
 
 /* Idle timeout ----------------------------------------------------------- */
 
